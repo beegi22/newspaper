@@ -1,2 +1,2 @@
 # newspaper
-python3 newspaper.py newspapers/1282.pdf
+python3 newspaper.py example.pdf

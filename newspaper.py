@@ -30,29 +30,10 @@ def bbox_compare_area(bbox1, bbox2):
     return area_percent
 
 
-def para_segment_big(blocks):
-    # text blockuudiig paragraph-r ni niiluulne
-    output_blocks = []
-    output_blocks.append(blocks[0])
-    for i in range(1, len(blocks)):
-        if blocks[i]['type'] != 0 or output_blocks[-1]['type'] != 0:
-            output_blocks.append(blocks[i])
-            continue
-        if bbox_compare(output_blocks[-1]['bbox'], blocks[i]['bbox'], 5):
-            output_blocks[-1]['bbox'][0] = min(output_blocks[-1]['bbox'][0], blocks[i]['bbox'][0])
-            output_blocks[-1]['bbox'][2] = max(output_blocks[-1]['bbox'][2], blocks[i]['bbox'][2])
-            output_blocks[-1]['bbox'][3] = blocks[i]['bbox'][3]
-            output_blocks[-1]['lines'] += blocks[i]['lines']
-        else:
-            output_blocks.append(blocks[i])
-    return output_blocks
-
-
-def para_segment(input_blocks):
-    # text blockuudiig paragraph-r ni niiluulne
-    output_blocks = []
+def text_line_segment(input_blocks):
+    # text block-g line-r salgana
     blocks = []
-    for block in input_blocks:
+    for number, block in enumerate(input_blocks):
         if block['type'] != 0:
             blocks.append(block)
             continue
@@ -65,7 +46,13 @@ def para_segment(input_blocks):
                     break
             if flag == "":
                 continue
-            blocks.append({'type': 0, 'bbox': line['bbox'], 'lines': [line]})
+            blocks.append({'type': 0, 'bbox': line['bbox'], 'lines': [line], 'block_number': number})
+    return blocks
+
+
+def para_segment(blocks):
+    # text blockuudiig paragraph-r ni niiluulne
+    output_blocks = []
     output_blocks.append(blocks[0])
     for i in range(1, len(blocks)):
         if blocks[i]['type'] != 0 or output_blocks[-1]['type'] != 0:
@@ -78,8 +65,6 @@ def para_segment(input_blocks):
             output_blocks[-1]['lines'] += blocks[i]['lines']
         else:
             output_blocks.append(blocks[i])
-    if len(output_blocks) > 100:
-        output_blocks = para_segment_big(input_blocks)
     return output_blocks
 
 
@@ -134,6 +119,7 @@ def remove_lines(bboxs, cnts_vertical, cnts_horizontal, ratio_w, ratio_h):
 
 
 def bboxs_sort(bboxs):
+    # bbox uudiig talbaigaar ni sortlono.
     area = []
     for index, bbox in enumerate(bboxs):
         area.append(((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]), index))
@@ -142,6 +128,32 @@ def bboxs_sort(bboxs):
     for index in area:
         bbox_sorted.append(bboxs[index[1]])
     return bbox_sorted
+
+
+def combine_blocks(blocks):
+    # blockuudiig pdf-n ugugdsun anhnii tom bbox-r negtgesenii daraa paragraphaar negtgene.
+    block_numbers = {}
+    output_blocks = []
+    for block in blocks:
+        if block.get('block_number') is None:
+            output_blocks.append(block)
+            continue
+        if block_numbers.get(block['block_number']):
+            block_numbers[block['block_number']].append(block)
+        else:
+            block_numbers[block['block_number']] = []
+            block_numbers[block['block_number']].append(block)
+    for key in block_numbers:
+        temp = {'type': block_numbers[key][0]['type'], 'bbox': block_numbers[key][0]['bbox'], 'lines': []}
+        for block in block_numbers[key]:
+            temp['bbox'][0] = min(temp['bbox'][0], block['bbox'][0])
+            temp['bbox'][2] = max(temp['bbox'][2], block['bbox'][2])
+            temp['bbox'][1] = min(temp['bbox'][1], block['bbox'][1])
+            temp['bbox'][3] = max(temp['bbox'][3], block['bbox'][3])
+            temp['lines'] += block['lines']
+        output_blocks.append(temp)
+    output_blocks = para_segment(output_blocks)
+    return output_blocks
 
 
 print("Started")
@@ -159,7 +171,7 @@ for number, page in enumerate(pages):
     page_content = json.loads(doc[number].getText('json'))
     ratio_w = page_img.shape[1] / page_content['width']
     ratio_h = page_img.shape[0] / page_content['height']
-    output_blocks = para_segment(page_content["blocks"])
+    output_blocks = text_line_segment(page_content["blocks"])
     height = int(page_content['height'])
     width = int(page_content['width'])
     bboxs = []
@@ -169,12 +181,10 @@ for number, page in enumerate(pages):
             value = 0
             bboxs.append([bbox[0] * ratio_w, bbox[1] * ratio_h, bbox[2] * ratio_w, bbox[3] * ratio_h])
         else:
-            for block_line in block['lines']:
-                bbox = block_line['bbox']
-                value = 5
-                if block_line['spans'][0]['size'] >= 30:
-                    value = 15
-                bboxs.append([bbox[0] * ratio_w + value, bbox[1] * ratio_h + value, bbox[2] * ratio_w - value, bbox[3] * ratio_h - value])
+            value = 5
+            if block['lines'][0]['spans'][0]['size'] >= 30:
+                value = 15
+            bboxs.append([bbox[0] * ratio_w + value, bbox[1] * ratio_h + value, bbox[2] * ratio_w - value, bbox[3] * ratio_h - value])
     cnts_vertical, cnts_horizontal = line_detection(page_img)
     vertical_lines, horizontal_lines = remove_lines(bboxs, cnts_vertical, cnts_horizontal, ratio_w, ratio_h)
     vertical_lines, horizontal_lines = article_lines(vertical_lines, horizontal_lines, height, width)
@@ -225,17 +235,18 @@ for number, page in enumerate(pages):
             break
     for j, article in enumerate(articles):
         bbox = article[1]
-        sorted_article = reading_order(article[0])
+        blocks = combine_blocks(article[0])
+        sorted_article = reading_order(blocks)
         data.append({'article_box': article[1], 'text': sorted_article})
         i = j + 1
         page_img = cv2.rectangle(page_img, (int(bbox[0] * ratio_w) + 10, int(bbox[1] * ratio_h) + 10), (int(bbox[2] * ratio_w) - 10, int(bbox[3] * ratio_h) - 10), (25 * i, 50 * i, 10 * i), 3)
         page_img = cv2.putText(page_img, str(i), (int(bbox[0] * ratio_w) + 20, int(bbox[1] * ratio_h) + 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 3, cv2.LINE_AA)
         for num, text in enumerate(sorted_article):
             bbox = text['bbox']
-            page_img = cv2.rectangle(page_img, (int(bbox[0] * ratio_w) + 10, int(bbox[1] * ratio_h) + 10), (int(bbox[2] * ratio_w) - 10, int(bbox[3] * ratio_h) - 10), (25 * i, 50 * i, 10 * i), 3)
+            page_img = cv2.rectangle(page_img, (int(bbox[0] * ratio_w), int(bbox[1] * ratio_h)), (int(bbox[2] * ratio_w), int(bbox[3] * ratio_h)), (25 * i, 50 * i, 10 * i), 3)
             page_img = cv2.putText(page_img, str(num + 1), (int(bbox[0] * ratio_w) + 20, int(bbox[1] * ratio_h) + 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 3, cv2.LINE_AA)
-    cv2.imwrite('Output/' + ifile[11:15] + '/Page_' + str(number + 1) + '.png', page_img)
-    with open('Output/' + ifile[11:15] + '/Page_' + str(number + 1) + '.json', 'w') as outfile:
+    cv2.imwrite('Output/Page_' + str(number + 1) + '.png', page_img)
+    with open('Output/Page_' + str(number + 1) + '.json', 'w') as outfile:
         json.dump(data, outfile)
     print("Page-" + str(number + 1) + "-loaded: " + str(time.time() - start_time))
 print("Done: " + str(time.time() - total_time))

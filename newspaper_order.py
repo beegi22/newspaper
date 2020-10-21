@@ -9,14 +9,20 @@ def reading_order(articles):
         block = articles.pop(0)
         if block['type'] != 0:
             img.append(block)
-        elif block['lines'][0]['spans'][0]['size'] >= 18 and block['lines'][0]['spans'][0]['color'] == 0:
+            continue
+        flag = True
+        for line in block['lines']:
+            if line['spans'][0]['size'] < 18:
+                flag = False
+                break
+        if flag and block['lines'][0]['spans'][0]['color'] == 0:
             titles.append(block)
         else:
             articles.append(block)
     length = len(articles)
     for i in range(length):
         block = articles.pop(0)
-        if block['lines'][0]['spans'][0]['size'] < 9:
+        if block['lines'][0]['spans'][0]['size'] < 9 and block['lines'][0]['spans'][0]['font'] != "PoynterGothicText-BoldCond":
             img_text.append(block)
         elif block['lines'][0]['spans'][0]['color'] == 6909551 and block['lines'][0]['spans'][0]['size'] > 13:
             titles.append(block)

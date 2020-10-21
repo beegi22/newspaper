@@ -73,14 +73,22 @@ def article_lines(vertical, horizontal, h, w):
                 vertical.append([line_hor[2], min_y, line_hor[2], max_y])
                 x2 = line_hor[2]
             horizontal_lines.append([[int(x1), int(line_hor[1]), int(x2), int(line_hor[1])], points])
-        if points and (x1 == 0 or x2 == w):
+        elif points and (x1 == 0 or x2 == w):
             # x1 = 0
             # x2 = w
+            flag_x1 = True
+            flag_x2 = True
             for point in points:
                 if line_hor[0] > point[0] and x1 < point[0]:
                     x1 = point[0]
+                    flag_x1 = False
                 elif line_hor[2] < point[0] and x2 > point[0]:
                     x2 = point[0]
+                    flag_x2 = False
+            if flag_x1 and x1 != 0:
+                x1 = line_hor[0]
+            if flag_x2 and x2 != w:
+                x2 = line_hor[2]
             horizontal_lines.append([[int(x1), int(line_hor[1]), int(x2), int(line_hor[1])], points])
         elif x1 == 0 and x2 == w:
             horizontal_lines.append([[0, int(line_hor[1]), int(w), int(line_hor[1])], []])
@@ -151,11 +159,19 @@ def article_lines(vertical, horizontal, h, w):
         elif points and (y1 == 0 or y2 == h):
             # y1 = 0
             # y2 = h
+            flag_y1 = True
+            flag_y2 = True
             for point in points:
                 if line_ver[1] > point[1] and y1 < point[1]:
                     y1 = point[1]
+                    flag_y1 = False
                 elif line_ver[3] < point[1] and y2 > point[1]:
                     y2 = point[1]
+                    flag_y2 = False
+            if flag_y1 and y1 != 0:
+                y1 = line_ver[1]
+            if flag_y2 and y2 != h:
+                y2 = line_ver[3]
             vertical_lines.append([[int(line_ver[0]), int(y1), int(line_ver[0]), int(y2)], points])
         elif y1 == 0 and y2 >= h:
             vertical_lines.append([[int(line_ver[0]), 0, int(line_ver[0]), int(h)], []])

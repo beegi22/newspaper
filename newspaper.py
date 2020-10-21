@@ -2,6 +2,7 @@ import cv2
 import fitz
 import sys
 import json
+import time
 from pdf2image import convert_from_path
 from newspaper_order import reading_order
 from Article_lines import article_lines
@@ -20,17 +21,31 @@ def bbox_compare(bbox1, bbox2, value):
 def bbox_compare_area(bbox1, bbox2):
     # 2 box dawhtsaliin talbaig olno.
     width = min(bbox1[2], bbox2[2]) - max(bbox1[0], bbox2[0])
-    height = min(bbox1[3] + 5, bbox2[3] + 5) - max(bbox1[1], bbox2[1])
+    height = min(bbox1[3], bbox2[3]) - max(bbox1[1], bbox2[1])
     if width <= 0 or height <= 0:
         return 0.0
     area = width * height
     bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
-    bbox2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
-    if bbox1_area < bbox2_area:
-        area_percent = area / (bbox1_area)
-    else:
-        area_percent = area / (bbox2_area)
+    area_percent = area / bbox1_area
     return area_percent
+
+
+def para_segment_big(blocks):
+    # text blockuudiig paragraph-r ni niiluulne
+    output_blocks = []
+    output_blocks.append(blocks[0])
+    for i in range(1, len(blocks)):
+        if blocks[i]['type'] != 0 or output_blocks[-1]['type'] != 0:
+            output_blocks.append(blocks[i])
+            continue
+        if bbox_compare(output_blocks[-1]['bbox'], blocks[i]['bbox'], 5):
+            output_blocks[-1]['bbox'][0] = min(output_blocks[-1]['bbox'][0], blocks[i]['bbox'][0])
+            output_blocks[-1]['bbox'][2] = max(output_blocks[-1]['bbox'][2], blocks[i]['bbox'][2])
+            output_blocks[-1]['bbox'][3] = blocks[i]['bbox'][3]
+            output_blocks[-1]['lines'] += blocks[i]['lines']
+        else:
+            output_blocks.append(blocks[i])
+    return output_blocks
 
 
 def para_segment(input_blocks):
@@ -63,6 +78,8 @@ def para_segment(input_blocks):
             output_blocks[-1]['lines'] += blocks[i]['lines']
         else:
             output_blocks.append(blocks[i])
+    if len(output_blocks) > 100:
+        output_blocks = para_segment_big(input_blocks)
     return output_blocks
 
 
@@ -87,7 +104,7 @@ def line_detection(img):
 
 
 def remove_lines(bboxs, cnts_vertical, cnts_horizontal, ratio_w, ratio_h):
-    # hereggui zuraasiig hasna
+    # hereggui zuraasiig hasna (contenttoi dawhtsaj bui zuraasuudiig hasna)
     vertical_lines = []
     horizontal_lines = []
     for line_bbox in cnts_vertical:
@@ -127,10 +144,15 @@ def bboxs_sort(bboxs):
     return bbox_sorted
 
 
+print("Started")
+total_time = time.time()
+start_time = time.time()
 ifile = sys.argv[1]
 pages = convert_from_path(ifile)
 doc = fitz.Document(ifile)
+print("Pdf-loaded: " + str(time.time() - start_time))
 for number, page in enumerate(pages):
+    start_time = time.time()
     data = []
     page.save('out.jpg', 'JPEG')
     page_img = cv2.imread('out.jpg')
@@ -193,7 +215,7 @@ for number, page in enumerate(pages):
         length = len(output_blocks)
         for i in range(length):
             block = output_blocks.pop(0)
-            if bbox_compare_area(block['bbox'], bbox) >= 0.8:
+            if bbox_compare_area(block['bbox'], bbox) >= 0.5:
                 article.append(block)
             else:
                 output_blocks.append(block)
@@ -204,7 +226,7 @@ for number, page in enumerate(pages):
     for j, article in enumerate(articles):
         bbox = article[1]
         sorted_article = reading_order(article[0])
-        data.append({'bbox': article[1], 'text': sorted_article})
+        data.append({'article_box': article[1], 'text': sorted_article})
         i = j + 1
         page_img = cv2.rectangle(page_img, (int(bbox[0] * ratio_w) + 10, int(bbox[1] * ratio_h) + 10), (int(bbox[2] * ratio_w) - 10, int(bbox[3] * ratio_h) - 10), (25 * i, 50 * i, 10 * i), 3)
         page_img = cv2.putText(page_img, str(i), (int(bbox[0] * ratio_w) + 20, int(bbox[1] * ratio_h) + 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 3, cv2.LINE_AA)
@@ -215,3 +237,5 @@ for number, page in enumerate(pages):
     cv2.imwrite('Output/' + ifile[11:15] + '/Page_' + str(number + 1) + '.png', page_img)
     with open('Output/' + ifile[11:15] + '/Page_' + str(number + 1) + '.json', 'w') as outfile:
         json.dump(data, outfile)
+    print("Page-" + str(number + 1) + "-loaded: " + str(time.time() - start_time))
+print("Done: " + str(time.time() - total_time))
